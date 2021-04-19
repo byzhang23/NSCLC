@@ -1,9 +1,12 @@
 library(tidyverse)
-library(ggplot2)
+
+## dat: input data (after running 2-xpca_xx.R)
+## var: response variable (cancor(gene expr, var))
+## B: permutation times
+## permute: indicator whether conduct permutation test or not
 
 permute_axis <- function(dat,
                          var = 'resi_tumor',
-                         plot.var = 'resi_tumor',
                          B=1000,
                          permute=T){
     
@@ -40,13 +43,47 @@ permute_axis <- function(dat,
     }
 }
 
-##
+##############
+## Example
+##############
+setwd('~/scratch/TCR/')
+
+## (1) Global UMAP: limit to tumor tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/tumor/'
 file = 'dat_hvg_m2.rds'
 dat = readRDS(paste0(output.dir,file)) # result file by running 2-xpca_xx.R (dat_hvg_m2.rds)
 dat$response = ifelse(dat$response=='NR',0,1)
 dat$tissue = ifelse(dat$tissue=='normal',0,1)
+res.tumor = permute_axis(dat, var = 'response', B = 10000, permute = T)
 
-# Example: response
-res = permute_axis(dat, var = 'response', plot.var = 'response', B = 10000, permute = T)
-# Example: tissue
-res = permute_axis(dat, var = 'tissue', plot.var = 'tissue', B = 10000, permute = T)
+## (2) Global UMAP: limit to normal tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/normal/'
+file = 'dat_hvg_m2.rds'
+dat = readRDS(paste0(output.dir,file)) # result file by running 2-xpca_xx.R (dat_hvg_m2.rds)
+dat$response = ifelse(dat$response=='NR',0,1)
+dat$tissue = ifelse(dat$tissue=='normal',0,1)
+res.norm = permute_axis(dat, var = 'response', B = 10000, permute = T)
+
+# (3) Global UMAP: limit to tumor and normal
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/overall/'
+file = 'dat_hvg_m2.rds'
+dat = readRDS(paste0(output.dir,file)) # result file by running 2-xpca_xx.R (dat_hvg_m2.rds)
+dat$response = ifelse(dat$response=='NR',0,1)
+dat$tissue = ifelse(dat$tissue=='normal',0,1)
+res.tis = permute_axis(dat, var = 'tissue', B = 10000, permute = T)
+
+# (4) CD8 UMAP: limit to tumor tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/CD8/tumor/'
+file = 'dat_hvg_m2.rds'
+dat = readRDS(paste0(output.dir,file)) # result file by running 2-xpca_xx.R (dat_hvg_m2.rds)
+dat$response = ifelse(dat$response=='NR',0,1)
+dat$tissue = ifelse(dat$tissue=='normal',0,1)
+res.cd8 = permute_axis(dat, var = 'response', B = 10000, permute = T)
+
+# (5) Combined MANA cluster
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/CD8/final_comb4clu_tumor/'
+file = 'dat_hvg_m2.rds'
+dat = readRDS(paste0(output.dir,file)) # result file by running 2-xpca_xx.R (dat_hvg_m2.rds)
+dat$response = ifelse(dat$response=='NR',0,1)
+dat$tissue = ifelse(dat$tissue=='normal',0,1)
+res.mana = permute_axis(dat, var = 'response', B = 10000, permute = T)

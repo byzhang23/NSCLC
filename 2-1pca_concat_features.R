@@ -1,16 +1,11 @@
 library(tidyverse)
-library(ggplot2)
-library(ggrepel)
-library(ggpubr)
-library(gridExtra)
-library(TSCAN)
-library(RColorBrewer)
 library(sva)
+library(ggplot2)
 
 setwd('~/scratch/TCR/')
 
 ##############################
-## Gene expression PCA (concatenate features)
+## Gene expression PCA (concatenate features): global UMAP or global CD8 UMAP
 ##############################
 
 ## meta: sample meta
@@ -77,25 +72,106 @@ pseudo_bulk_pca <- (pr[,1:min(20,ncol(d))])
 # saveRDS(pseudo_bulk_pca, paste0(output.dir,"pca_hvg_",method,".rds"))
 
 pca.hvg = data.frame(pseudo_bulk_pca[,1:2],patient.tissue = rownames(pseudo_bulk_pca))
-dat.hvg = inner_join(pca.hvg,meta) %>% mutate(log10.num.cells = log10(num.cells))
+dat.hvg = inner_join(pca.hvg,meta) # %>% mutate(log10.num.cells = log10(num.cells))
 saveRDS(dat.hvg,paste0(output.dir,'dat_hvg_',method,'.rds'))
 
 return(dat.hvg)
 }
 
-##############################
-## Example: limit to normal tissue
-##############################
-output.dir = './result/1global_treated/pca/pb_patient/normal/sc_bycluster/'
+plot_pca <- function(dt,column){
+    min = min(dt$PC1,dt$PC2)
+    max = max(dt$PC1,dt$PC2)
+    if(column == 'tissue'){
+        
+        (ggplot(dt,aes_string(x='PC1',y='PC2',color = column,label = 'patient.tissue')) +
+             geom_point() +
+             theme_classic() +
+             scale_color_manual(breaks=c('normal','tumor'),
+                                values=c('#F8766D','#00BFC4')) +
+             xlim(min,max) + ylim(min,max)) %>% print
+        
+    }else{
+        (ggplot(dt,aes_string(x='PC1',y='PC2',color = column)) +
+             geom_point() +
+             theme_classic() +
+             xlim(min,max) + ylim(min,max)) %>% print
+    }
+}
+
+##############
+## Example
+##############
+## (1) Global UMAP: limit to normal tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/normal/'
 pseudobulk.dat = 'pb_norm_patienttissue.rds'
-m = readRDS('./data/1global_treated/meta.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,group,num.cell.pattissue,response) %>% rename(num.cells = num.cell.pattissue) %>% filter(tissue %in% c('normal')) # tumor subset: filter(tissue == 'tumor')
+m = readRDS('./data/1global_treated/meta.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,group,response) %>% filter(tissue %in% c('normal'))
 clu = readRDS("./data/1global_treated/cluster.rds")
 clu = clu[names(clu) %in% m$barcode]
-meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,num.cells,response) %>% unique
+meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
 
-s = readRDS(paste0("./data/1global_treated/",pseudobulk.dat))
+s = readRDS(paste0("./data/1global_treated/resubmission/",pseudobulk.dat))
 s = lapply(s,function(dt) dt[,which(colnames(dt) %in% meta$patient.tissue)])
 sampsize = sapply(s,ncol)
 print(sampsize)  # 12 normal
 
 dat_pca = run_pca_concat_features(meta,s,output.dir)
+# plot
+pdf(paste0(output.dir,'pca_plot.pdf'))
+plot_pca(dat_pca,'response')
+dev.off()
+
+
+## (2) Global UMAP: limit to tumor tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/tumor/'
+pseudobulk.dat = 'pb_norm_patienttissue.rds'
+m = readRDS('./data/1global_treated/meta.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,group,response) %>% filter(tissue %in% c('tumor'))
+clu = readRDS("./data/1global_treated/cluster.rds")
+clu = clu[names(clu) %in% m$barcode]
+meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
+
+s = readRDS(paste0("./data/1global_treated/resubmission/",pseudobulk.dat))
+s = lapply(s,function(dt) dt[,which(colnames(dt) %in% meta$patient.tissue)])
+sampsize = sapply(s,ncol)
+print(sampsize)  # 15 tumor
+
+dat_pca = run_pca_concat_features(meta,s,output.dir)
+# plot
+pdf(paste0(output.dir,'pca_plot.pdf'))
+plot_pca(dat_pca,'response')
+dev.off()
+
+## (3) Global UMAP: tumor and normal
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/overall/'
+pseudobulk.dat = 'pb_norm_patienttissue.rds'
+m = readRDS('./data/1global_treated/meta.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,group,response) %>% filter(tissue %in% c('tumor','normal'))
+clu = readRDS("./data/1global_treated/cluster.rds")
+clu = clu[names(clu) %in% m$barcode]
+meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
+
+s = readRDS(paste0("./data/1global_treated/resubmission/",pseudobulk.dat))
+s = lapply(s,function(dt) dt[,which(colnames(dt) %in% meta$patient.tissue)])
+sampsize = sapply(s,ncol)
+print(sampsize)  # 27
+
+dat_pca = run_pca_concat_features(meta,s,output.dir)
+# plot
+pdf(paste0(output.dir,'pca_plot.pdf'))
+plot_pca(dat_pca,'tissue')
+dev.off()
+
+## (4) CD8 UMAP: limit to tumor tissue
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/CD8/tumor/'
+pseudobulk.dat = 'finalbyclu.tumor.pb_norm_patienttissue.rds'
+m = readRDS('./data/1global_treated/meta.cd8.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,response,CellType) %>% filter(tissue %in% c('tumor'))
+meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
+
+s = readRDS(paste0("./data/1global_treated/resubmission/",pseudobulk.dat))
+s = lapply(s,function(dt) dt[,which(colnames(dt) %in% meta$patient.tissue)])
+sampsize = sapply(s,ncol)
+print(sampsize)  # 15 tumor
+
+dat_pca = run_pca_concat_features(meta,s,output.dir)
+# plot
+pdf(paste0(output.dir,'pca_plot.pdf'))
+plot_pca(dat_pca,'response')
+dev.off()

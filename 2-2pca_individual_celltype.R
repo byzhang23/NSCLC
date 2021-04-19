@@ -1,10 +1,5 @@
 library(tidyverse)
 library(ggplot2)
-library(ggrepel)
-library(ggpubr)
-library(gridExtra)
-library(TSCAN)
-library(RColorBrewer)
 library(sva)
 
 setwd('~/scratch/TCR/')
@@ -12,6 +7,9 @@ setwd('~/scratch/TCR/')
 ##############################
 ## Gene expression PCA
 ##############################
+## meta: sample meta
+## s: gene expression matrix of 1 cell type
+## output.dir: output directory
 run_pca <- function(meta,s,output.dir){
     
     method = "m2"
@@ -58,18 +56,30 @@ pseudo_bulk_pca <- (pr[,1:min(20,ncol(d))])
 ## summarize
 pca.hvg = data.frame(pseudo_bulk_pca[,1:2],patient.tissue = rownames(pseudo_bulk_pca))
 print(dim(pca.hvg))
-dat.hvg = inner_join(pca.hvg,meta) %>% mutate(log10.num.cells = log10(num.cells))
+dat.hvg = inner_join(pca.hvg,meta) # %>% mutate(log10.num.cells = log10(num.cells))
 saveRDS(dat.hvg,paste0(output.dir,'dat_hvg_',method,'.rds'))
 
-###############
-## compute cancor
-###############
-dat.hvg$response = ifelse(dat.hvg$response=='NR',0,1)
-cancor = cancor(dat.hvg %>% select(PC1,PC2),dat.hvg[,'response'])
-obs.cor = cancor$cor
-print(obs.cor)
+return(dat.hvg)
+}
 
-return(obs.cor)
+plot_pca <- function(dt,column){
+    min = min(dt$PC1,dt$PC2)
+    max = max(dt$PC1,dt$PC2)
+    if(column == 'tissue'){
+        
+        (ggplot(dt,aes_string(x='PC1',y='PC2',color = column,label = 'patient.tissue')) +
+             geom_point() +
+             theme_classic() +
+             scale_color_manual(breaks=c('normal','tumor'),
+                                values=c('#F8766D','#00BFC4')) +
+             xlim(min,max) + ylim(min,max)) %>% print
+        
+    }else{
+        (ggplot(dt,aes_string(x='PC1',y='PC2',color = column)) +
+             geom_point() +
+             theme_classic() +
+             xlim(min,max) + ylim(min,max)) %>% print
+    }
 }
 
 ###############
@@ -78,13 +88,11 @@ return(obs.cor)
 ## (1) PCA for combined MANA enriched cluster
 meta.dat = './data/1global_treated/meta.cd8.rds'
 pseudobulk.dat = 'finalcomb4clu.tumor.bulk.pb_norm_patienttissue.rds'
-output.dir = './result/1global_treated/pca/pb_patient/MANA/final_comb4clu_tumor/'
+output.dir = './result/1global_treated/pca/pb_patient/resubmission/CD8/final_comb4clu_tumor/'
 
-## Limit to tumor samples
 m = readRDS(meta.dat) %>%
     select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,response,resi_tumor,sample.n) %>%
     mutate(patient.tissue = paste0(patient_id,':',tissue)) %>% filter(tissue=='tumor')
-
 aa = m %>% group_by(patient.tissue) %>% summarise(num.cells = n_distinct(barcode))
 m = left_join(m,aa)
 meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response,num.cells) %>% unique
@@ -93,29 +101,37 @@ s = readRDS(paste0("./data/1global_treated/",pseudobulk.dat))
 s = s[,which(colnames(s) %in% meta$patient.tissue)]
 print(ncol(s))  # 15 CD8+ tumor samples
 
-cancor = run_pca(meta,s,output.dir)
+dat_pca = run_pca(meta,s,output.dir)
+# plot
+pdf(paste0(output.dir,'pca_plot.pdf'))
+plot_pca(dat_pca,'response')
+dev.off()
 
 ## (2) PCA for other non MANA enriched clusters (evaluate separately)
-ctname = 'MAIT'
-output.dir = paste0('./result/1global_treated/pca/pb_patient/MANA/final_refineclusters/',gsub('\\/','or',ctname),'/')
-pseudobulk.dat = 'finalbyclu.tumor.pb_norm_patienttissue.rds'
+unq.ct = c("Effector(I)", "TRM(I)", "Effector(II)", "MAIT", "TRM(VI)", "CD4CD8(I)", "Effector(III)", "TRM(III)","Stem-like memory", "CD4CD8(II)")
 
-## Limit to tumor samples and a specific celltype
-m = readRDS('./data/1global_treated/meta.cd8.rds') %>%
-select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,response,CellType) %>%
+cancor.ls = c()
+for(ctname in unq.ct){
+    print(ctname)
+    
+    output.dir = paste0('./result/1global_treated/pca/pb_patient/resubmission/CD8/',gsub('\\/','or',ctname),'/')
+    pseudobulk.dat = 'finalbyclu.tumor.pb_norm_patienttissue.rds'
+
+    ## Limit to tumor samples and a specific celltype
+    m = readRDS('./data/1global_treated/meta.cd8.rds') %>% select(barcode,orig.ident,batch,patient_id,center,cohort,tissue,patient.tissue,resi_tumor,sample.n,response,CellType) %>%
     mutate(CellType = as.character(CellType)) %>%
     filter(tissue %in% c('tumor')) %>% filter(CellType==ctname)
-clu = m$CellType
-names(clu) = m$barcode
-meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
+    clu = m$CellType
+    names(clu) = m$barcode
+    meta = m %>% select(patient.tissue,center,tissue,resi_tumor,patient_id,response) %>% unique
 
-s = readRDS(paste0("./data/1global_treated/",pseudobulk.dat))
-s = s[which(names(s) %in% unique(clu))]
-print(length(s)) # 1 cluster
-s = lapply(s,function(dt) dt[,which(colnames(dt) %in% meta$patient.tissue)])
-sampsize = sapply(s,ncol)
-print(sampsize)  # 15 tumor
+    s = readRDS(paste0("./data/1global_treated/",pseudobulk.dat))
+    s = s[[which(names(s) %in% unique(clu))]] # extract 1 cluster
+    print(ncol(s))  # 15 tumor
 
-cancor = run_pca(meta,s,output.dir)
+    dat_pca = run_pca(meta,s,output.dir) %>% mutate(response = ifelse(response=='NR',0,1))
 
+    cancor.ls = c(cancor.ls,cancor(dat_pca[,1:2],dat_pca$response)$cor)
+}
 
+cancor.dat = data.frame(CellType = unq.ct,cancor = cancor.ls)
